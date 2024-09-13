@@ -5,7 +5,7 @@ module Main where
 import Control.Monad (filterM)
 import Data.HashTable.IO qualified as HashTable
 import Data.Int (Int64)
-import Data.Maybe (isJust)
+import Data.Maybe (fromJust, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
@@ -67,23 +67,22 @@ parseToPackages = map f
         }
     f _ = error "Invalid input"
 
-cleanOptionals :: PackageTable -> IO ()
-cleanOptionals hmap = HashTable.mapM_ edit hmap
+editTable :: PackageTable -> (Package -> IO (Maybe Package)) -> IO ()
+editTable hmap f = HashTable.mapM_ edit hmap
   where
-    edit (key, _) = HashTable.mutateIO hmap key perPack
-    perPack (Just v) = do
-      opts <- filterM perOpt (optional v)
-      return (Just v {optional = opts}, ())
-    perPack _ = undefined
-    perOpt val = do
-      mbV <- HashTable.lookup hmap val
-      return $ isJust mbV
+    edit (key, _) = HashTable.mutateIO hmap key $ fmap (,()) . f . fromJust
+
+cleanOptionals :: PackageTable -> IO ()
+cleanOptionals hmap = editTable hmap edit
+  where
+    edit v = filterM check (optional v) >>= (\o -> return $ Just v {optional = o})
+    check o = isJust <$> HashTable.lookup hmap o
 
 main :: IO ()
 main = do
   Just raw <- getExpacQuery ["%n|%E|%S|%o|%N|%w|%m"] -- name,
   let packs = parseToPackages $ map (Text.splitOn "|") (Text.lines raw)
-  hmap <- HashTable.fromList [(name x, x) | x <- packs]
+  hmap <- HashTable.fromList [(name x, x) | x <- packs] :: IO PackageTable
   cleanOptionals hmap
   res <- HashTable.lookup hmap "pacman"
   print res
