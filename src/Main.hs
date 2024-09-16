@@ -6,6 +6,8 @@ import Control.Monad (filterM)
 import Data.HashTable.IO qualified as HashTable
 import Data.Int (Int64)
 import Data.Maybe (fromJust, isJust)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
@@ -16,10 +18,11 @@ data Package = Package
   { name :: Text,
     size :: Int64,
     explicit :: Bool,
-    provides :: [Text],
-    depends :: [Text],
-    optional :: [Text],
-    required :: [Text]
+    provides :: Set Text,
+    depends :: Set Text,
+    optional :: Set Text,
+    optrequir :: Set Text,
+    required :: Set Text
   }
   deriving (Eq, Show, Read)
 
@@ -29,7 +32,7 @@ expacName :: Text
 expacName = "expac"
 
 printByLines :: (Show a) => [a] -> IO ()
-printByLines = foldr ((>>) . print) (return ())
+printByLines = foldr ((>>) . print) (pure ())
 
 getCmdOutput :: Text -> [Text] -> IO (Maybe Text)
 getCmdOutput cmdName args = do
@@ -46,8 +49,8 @@ getCmdOutput cmdName args = do
   outStr <- Text.hGetContents readEnd
   code <- waitForProcess handle
   case code of
-    ExitSuccess -> return $ Just outStr
-    _ -> return Nothing
+    ExitSuccess -> pure $ Just outStr
+    _ -> pure Nothing
 
 getExpacQuery :: [Text] -> IO (Maybe Text)
 getExpacQuery args = getCmdOutput expacName ("-Q" : args)
@@ -60,23 +63,55 @@ parseToPackages = map f
         { name = name',
           size = read (Text.unpack size'),
           explicit = explicit' == "explicit",
-          provides = Text.words provides',
-          depends = Text.words depends',
-          optional = Text.words optional',
-          required = Text.words required'
+          provides = Set.fromList $ Text.words provides',
+          depends = Set.fromList $ Text.words depends',
+          optional = Set.fromList $ Text.words optional',
+          optrequir = Set.fromList [],
+          required = Set.fromList $ Text.words required'
         }
     f _ = error "Invalid input"
 
-editTable :: PackageTable -> (Package -> IO (Maybe Package)) -> IO ()
-editTable hmap f = HashTable.mapM_ edit hmap
-  where
-    edit (key, _) = HashTable.mutateIO hmap key $ fmap (,()) . f . fromJust
+editKey :: (Package -> Maybe Package) -> Text -> PackageTable -> IO ()
+editKey f key hmap = HashTable.mutate hmap key $ (,()) . f . fromJust
+
+editKeyIO :: (Package -> IO (Maybe Package)) -> Text -> PackageTable -> IO ()
+editKeyIO f key hmap = HashTable.mutateIO hmap key $ fmap (,()) . f . fromJust
+
+editTableIO :: (Package -> IO (Maybe Package)) -> PackageTable -> IO ()
+editTableIO f hmap = HashTable.mapM_ ((\k -> editKeyIO f k hmap) . fst) hmap
+
+editTable :: (Package -> Maybe Package) -> PackageTable -> IO ()
+editTable f hmap = HashTable.mapM_ ((\k -> editKey f k hmap) . fst) hmap
 
 cleanOptionals :: PackageTable -> IO ()
-cleanOptionals hmap = editTable hmap edit
+cleanOptionals hmap = editTableIO edit hmap
   where
-    edit v = filterM check (optional v) >>= (\o -> return $ Just v {optional = o})
+    edit v = do
+      newO <- filterM check (Set.toAscList $ optional v)
+      pure $ Just v {optional = Set.fromAscList newO}
     check o = isJust <$> HashTable.lookup hmap o
+
+computeOptRequire :: PackageTable -> IO ()
+computeOptRequire hmap = editTableIO f hmap
+  where
+    f v = mapM_ f1 (optional v) >> pure (Just v)
+      where
+        f1 :: Text -> IO ()
+        f1 n = editKey addReq n hmap
+        addReq k = Just $ k {optrequir = Set.insert (name v) (optrequir k)}
+
+deletePackage :: PackageTable -> Text -> IO ()
+deletePackage hmap name' = editTable f hmap
+  where
+    f v
+      | name v == name' = Nothing
+      | otherwise =
+          Just $
+            v
+              { required = Set.delete name' (required v),
+                optrequir = Set.delete name' (optrequir v),
+                optional = Set.delete name' (optional v)
+              }
 
 main :: IO ()
 main = do
@@ -84,5 +119,5 @@ main = do
   let packs = parseToPackages $ map (Text.splitOn "|") (Text.lines raw)
   hmap <- HashTable.fromList [(name x, x) | x <- packs] :: IO PackageTable
   cleanOptionals hmap
-  res <- HashTable.lookup hmap "pacman"
-  print res
+  computeOptRequire hmap
+  print =<< HashTable.lookup hmap "pacman"
