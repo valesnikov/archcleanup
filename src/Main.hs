@@ -78,10 +78,10 @@ editKeyIO :: (Package -> IO (Maybe Package)) -> Text -> PackageTable -> IO ()
 editKeyIO f key hmap = HashTable.mutateIO hmap key $ fmap (,()) . f . fromJust
 
 editTableIO :: (Package -> IO (Maybe Package)) -> PackageTable -> IO ()
-editTableIO f hmap = HashTable.mapM_ ((\k -> editKeyIO f k hmap) . fst) hmap
+editTableIO f hmap = HashTable.mapM_ (\(k, _) -> editKeyIO f k hmap) hmap
 
 editTable :: (Package -> Maybe Package) -> PackageTable -> IO ()
-editTable f hmap = HashTable.mapM_ ((\k -> editKey f k hmap) . fst) hmap
+editTable f hmap = HashTable.mapM_ (\(k, _) -> editKey f k hmap) hmap
 
 cleanOptionals :: PackageTable -> IO ()
 cleanOptionals hmap = editTableIO edit hmap
@@ -92,18 +92,18 @@ cleanOptionals hmap = editTableIO edit hmap
     check o = isJust <$> HashTable.lookup hmap o
 
 computeOptRequire :: PackageTable -> IO ()
-computeOptRequire hmap = editTableIO f hmap
+computeOptRequire hmap = editTableIO mopts hmap
   where
-    f v = mapM_ f1 (optional v) >> pure (Just v)
+    mopts v = mapM_ edit (optional v) >> pure (Just v)
       where
-        f1 :: Text -> IO ()
-        f1 n = editKey addReq n hmap
+        edit n = editKey addReq n hmap
         addReq k = Just $ k {optrequir = Set.insert (name v) (optrequir k)}
 
+-- only for packages with empty 'required'
 deletePackage :: PackageTable -> Text -> IO ()
-deletePackage hmap name' = editTable f hmap
+deletePackage hmap name' = editTable perPack hmap
   where
-    f v
+    perPack v
       | name v == name' = Nothing
       | otherwise =
           Just $
@@ -113,6 +113,19 @@ deletePackage hmap name' = editTable f hmap
                 optional = Set.delete name' (optional v)
               }
 
+keys :: PackageTable -> IO [Text]
+keys = HashTable.foldM (\acc (k, _) -> pure $ k : acc) []
+
+findOrphans :: PackageTable -> IO [Text]
+findOrphans hmap = do
+  ks <- keys hmap
+  filterM check ks
+  where
+    check :: Text -> IO Bool
+    check key = do
+      Just v <- HashTable.lookup hmap key
+      pure $ null (required v) && not (explicit v)
+
 main :: IO ()
 main = do
   Just raw <- getExpacQuery ["%n|%E|%S|%o|%N|%w|%m"] -- name,
@@ -120,4 +133,4 @@ main = do
   hmap <- HashTable.fromList [(name x, x) | x <- packs] :: IO PackageTable
   cleanOptionals hmap
   computeOptRequire hmap
-  print =<< HashTable.lookup hmap "pacman"
+  print =<< findOrphans hmap
