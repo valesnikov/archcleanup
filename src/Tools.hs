@@ -9,6 +9,8 @@ import System.Process (createPipe, runProcess, waitForProcess)
 printByLines :: (Show a) => [a] -> IO ()
 printByLines = foldr ((>>) . print) (pure ())
 
+-- | calls the program with the name and arguments
+-- and writes it stdout in response
 getCmdOutput :: Text -> [Text] -> IO (Maybe Text)
 getCmdOutput cmdName args = do
   (readEnd, writeEnd) <- createPipe

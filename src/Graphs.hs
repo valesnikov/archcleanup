@@ -1,4 +1,4 @@
-module Tables where
+module Graphs where
 
 import Data.HashMap qualified as Map
 import Data.Set (Set)
@@ -15,7 +15,7 @@ data PackNoReq = PackNoReq
   }
   deriving (Eq, Show)
 
--- | Packages with computed dependencies and deleted loops
+-- | Packages with computed dependencies and opt dependencies
 data Pack = Pack
   { pName :: Text,
     pSize :: Integer,
@@ -27,20 +27,24 @@ data Pack = Pack
   }
   deriving (Eq, Show)
 
-type BaseNoReq = Map.Map Text PackNoReq
-
-type Base = Map.Map Text Pack
-
 -- | Digraph has not yet been tested for unknown dependencies
-newtype UnverifiedDigraph = UnverifiedDigraph BaseNoReq deriving Show
+newtype UnverifiedDigraph
+  = UnverifiedDigraph (Map.Map Text PackNoReq)
+  deriving (Show)
 
 -- | Package dependency graph, with cyclic dependencies
-newtype Digraph = Digraph BaseNoReq deriving Show
+newtype Digraph
+  = Digraph (Map.Map Text PackNoReq)
+  deriving (Show)
 
--- | A digraph in which cyclic dependencies are united in one vertex
-newtype Forest = Forest BaseNoReq deriving Show
+-- | The vertices connected to the given vertex are computed
+newtype Graph
+  = Graph (Map.Map Text Pack)
+  deriving (Show)
 
--- | A forest in which for each vertex it indicates who depends on it
-newtype BidirForest = BidirForest Base deriving Show
+-- | A digraph in which cyclic dependencies are merged in one vertex
+newtype Forest
+  = Forest (Map.Map Text Pack)
+  deriving (Show)
 
--- UnverifiedDigraph -> Digraph -> Forest -> BidirForest
+-- UnverifiedDigraph -> Digraph -> Graph -> Forest

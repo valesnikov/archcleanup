@@ -9,9 +9,10 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Tables qualified
+import Graphs qualified
 import Tools qualified
 
+-- | Structure of the pacman package
 data Pack = Pack
   { pName :: Text,
     pSize :: Integer,
@@ -22,12 +23,14 @@ data Pack = Pack
   }
   deriving (Eq, Show)
 
+-- | Graph for internal computing
 type PacDigraph = Map.Map Text Pack
 
 -- | Name of the data extraction program
 expacName :: Text
 expacName = "expac"
 
+-- | Сall 'expac' with the given parameters
 getExpacQuery :: [Text] -> IO (Maybe Text)
 getExpacQuery args = do
   exRes <- try $ Tools.getCmdOutput expacName ("-Q" : args)
@@ -37,6 +40,7 @@ getExpacQuery args = do
       pure Nothing
     Right r -> pure r
 
+-- | Parses lines and blocks into packets
 parseToPackages :: [[Text]] -> Maybe [Pack]
 parseToPackages = mapM parse
   where
@@ -56,17 +60,18 @@ parseToPackages = mapM parse
 createGraph :: [Pack] -> PacDigraph
 createGraph = Map.fromList . map (\x -> (pName x, x))
 
-converGraph :: PacDigraph -> Tables.UnverifiedDigraph
-converGraph d = Tables.UnverifiedDigraph $ Map.map convPack d
+-- | Creates a generic graph from the pacman graph (discards provides)
+converGraph :: PacDigraph -> Graphs.UnverifiedDigraph
+converGraph d = Graphs.UnverifiedDigraph $ Map.map convPack d
   where
-    convPack :: Pack -> Tables.PackNoReq
+    convPack :: Pack -> Graphs.PackNoReq
     convPack p =
-      Tables.PackNoReq
-        { Tables.pnrName = pName p,
-          Tables.pnrSize = pSize p,
-          Tables.pnrExplicit = pExplicit p,
-          Tables.pnrDepends = pDepends p,
-          Tables.pnrOptional = pOptional p
+      Graphs.PackNoReq
+        { Graphs.pnrName = pName p,
+          Graphs.pnrSize = pSize p,
+          Graphs.pnrExplicit = pExplicit p,
+          Graphs.pnrDepends = pDepends p,
+          Graphs.pnrOptional = pOptional p
         }
 
 -- | Map the 'provides' elements to the package name
@@ -96,10 +101,20 @@ cleanDeps :: PacDigraph -> ProvidesMap -> PacDigraph
 cleanDeps d pmap = Map.map edit d
   where
     edit v = v {pDepends = provToName (pDepends v)}
-    provToName = Set.map (fromJust . (`Map.lookup` pmap)) . delUninst
-    delUninst = Set.filter (`Map.member` pmap)
+    provToName = Set.map (\x -> verify x $ Map.lookup x pmap)
+      where
+        verify :: Text -> Maybe Text -> Text
+        verify name Nothing =
+          error $
+            "Dependency "
+              ++ show name
+              ++ " not found,\
+                 \ apparently the package base is broken"
+        verify _ (Just p) = p
 
-getGraph :: IO (Maybe Tables.UnverifiedDigraph)
+-- | Gets the graph through pacman.
+-- The only function in the module visible to other packages
+getGraph :: IO (Maybe Graphs.UnverifiedDigraph)
 getGraph = do
   mbPack <- getExpacQuery ["%n|%E|%S|%o|%w|%m"]
   case (parseToPackages . map (Text.splitOn "|") . Text.lines) =<< mbPack of
