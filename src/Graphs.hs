@@ -1,6 +1,6 @@
 module Graphs where
 
-import Data.HashMap qualified as Map
+import Data.HashMap.Lazy qualified as Map
 import Data.Set (Set)
 import Data.Text (Text)
 
@@ -13,7 +13,7 @@ data PackNoReq = PackNoReq
     pnrDepends :: Set Text,
     pnrOptional :: Set Text
   }
-  deriving (Eq, Show)
+  deriving (Show)
 
 -- | Packages with computed dependencies and opt dependencies
 data Pack = Pack
@@ -25,26 +25,26 @@ data Pack = Pack
     pRequired :: Set Text,
     pOptRequir :: Set Text
   }
-  deriving (Eq, Show)
+  deriving (Show)
 
 -- | Digraph has not yet been tested for unknown dependencies
 newtype UnverifiedDigraph
-  = UnverifiedDigraph (Map.Map Text PackNoReq)
+  = UnverifiedDigraph (Map.HashMap Text PackNoReq)
   deriving (Show)
 
 -- | Package dependency graph, with cyclic dependencies
 newtype Digraph
-  = Digraph (Map.Map Text PackNoReq)
+  = Digraph (Map.HashMap Text PackNoReq)
   deriving (Show)
 
 -- | The vertices connected to the given vertex are computed
 newtype Graph
-  = Graph (Map.Map Text Pack)
+  = Graph (Map.HashMap Text Pack)
   deriving (Show)
 
 -- | A digraph in which cyclic dependencies are merged in one vertex
 newtype Forest
-  = Forest (Map.Map Text Pack)
+  = Forest (Map.HashMap Text Pack)
   deriving (Show)
 
 -- UnverifiedDigraph -> Digraph -> Graph -> Forest

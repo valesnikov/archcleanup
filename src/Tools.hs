@@ -1,8 +1,10 @@
 module Tools where
 
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
+import System.Directory (findExecutable)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Process (createPipe, runProcess, waitForProcess)
 
@@ -28,3 +30,6 @@ getCmdOutput cmdName args = do
   case code of
     ExitSuccess -> pure $ Just outStr
     _ -> pure Nothing
+
+checkExecutable :: Text -> IO Bool
+checkExecutable exec = isJust <$> findExecutable (Text.unpack exec)

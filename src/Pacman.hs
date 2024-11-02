@@ -1,10 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-
-module Pacman (getGraph) where
+module Pacman (available, getGraph) where
 
 import Control.Exception (SomeException, try)
-import Data.HashMap qualified as Map
-import Data.Maybe (fromJust)
+import Data.HashMap.Lazy qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -21,22 +18,29 @@ data Pack = Pack
     pDepends :: Set Text,
     pOptional :: Set Text
   }
-  deriving (Eq, Show)
+  deriving (Show)
 
 -- | Graph for internal computing
-type PacDigraph = Map.Map Text Pack
+type PacDigraph = Map.HashMap Text Pack
 
 -- | Name of the data extraction program
 expacName :: Text
 expacName = "expac"
+
+-- | Checks the system for pacman and expac
+available :: IO Bool
+available = do
+  pac <- Tools.checkExecutable "pacman"
+  expac <- Tools.checkExecutable expacName
+  return $ pac && expac
 
 -- | Сall 'expac' with the given parameters
 getExpacQuery :: [Text] -> IO (Maybe Text)
 getExpacQuery args = do
   exRes <- try $ Tools.getCmdOutput expacName ("-Q" : args)
   case exRes of
-    Left (ex :: SomeException) -> do
-      print ex
+    Left ex -> do
+      print (ex :: SomeException)
       pure Nothing
     Right r -> pure r
 
@@ -44,15 +48,15 @@ getExpacQuery args = do
 parseToPackages :: [[Text]] -> Maybe [Pack]
 parseToPackages = mapM parse
   where
-    parse [name', depends', provides', optional', explicit', size'] =
+    parse [name, depends, provides, optional, explicit, size] =
       Just $
         Pack
-          { pName = name',
-            pSize = read (Text.unpack size'),
-            pExplicit = explicit' == "explicit",
-            pProvides = Set.fromList $ Text.words provides',
-            pDepends = Set.fromList $ Text.words depends',
-            pOptional = Set.fromList $ Text.words optional'
+          { pName = name,
+            pSize = read (Text.unpack size),
+            pExplicit = explicit == "explicit",
+            pProvides = Set.fromList $ Text.words provides,
+            pDepends = Set.fromList $ Text.words depends,
+            pOptional = Set.fromList $ Text.words optional
           }
     parse _ = Nothing
 
@@ -75,15 +79,15 @@ converGraph d = Graphs.UnverifiedDigraph $ Map.map convPack d
         }
 
 -- | Map the 'provides' elements to the package name
-type ProvidesMap = Map.Map Text Text
+type ProvidesMap = Map.HashMap Text Text
 
 -- | Makes a map of provide and name
 provideToName :: PacDigraph -> ProvidesMap
-provideToName = Map.fold addPack Map.empty
+provideToName = foldr addPack Map.empty
   where
     addPack pack mp =
       Map.insert (pName pack) (pName pack) $
-        Set.fold addProv mp (pProvides pack)
+        foldr addProv mp (pProvides pack)
       where
         addProv prov = Map.insert prov (pName pack)
 
@@ -93,7 +97,7 @@ cleanOpts :: PacDigraph -> ProvidesMap -> PacDigraph
 cleanOpts d pmap = Map.map edit d
   where
     edit v = v {pOptional = provToName (pOptional v)}
-    provToName = Set.map (fromJust . (`Map.lookup` pmap)) . delUninst
+    provToName = Set.map (pmap Map.!) . delUninst
     delUninst = Set.filter (`Map.member` pmap)
 
 -- | Replaces 'provides' with the matching 'name'
@@ -101,9 +105,8 @@ cleanDeps :: PacDigraph -> ProvidesMap -> PacDigraph
 cleanDeps d pmap = Map.map edit d
   where
     edit v = v {pDepends = provToName (pDepends v)}
-    provToName = Set.map (\x -> verify x $ Map.lookup x pmap)
+    provToName = Set.map (\x -> verify x $ pmap Map.!? x)
       where
-        verify :: Text -> Maybe Text -> Text
         verify name Nothing =
           error $
             "Dependency "
@@ -112,10 +115,10 @@ cleanDeps d pmap = Map.map edit d
                  \ apparently the package base is broken"
         verify _ (Just p) = p
 
--- | Gets the graph through pacman.
--- The only function in the module visible to other packages
+-- | Gets the graph through pacman and expac
 getGraph :: IO (Maybe Graphs.UnverifiedDigraph)
 getGraph = do
+  -- name, depends on, provides, optional deps, install reason, install size
   mbPack <- getExpacQuery ["%n|%E|%S|%o|%w|%m"]
   case (parseToPackages . map (Text.splitOn "|") . Text.lines) =<< mbPack of
     Nothing -> pure Nothing
