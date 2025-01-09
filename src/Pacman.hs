@@ -1,11 +1,15 @@
 module Pacman (available, getGraph) where
 
 import Control.Exception (SomeException, try)
-import Data.HashMap.Lazy qualified as Map
+import Data.Array qualified as Array
+import Data.HashMap.Strict qualified as Map
+import Data.Hashable (Hashable)
+import Data.IntSet qualified as IntSet
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Graphs (IdTable)
 import Graphs qualified
 import Tools qualified
 
@@ -65,17 +69,18 @@ createGraph :: [Pack] -> PacDigraph
 createGraph = Map.fromList . map (\x -> (pName x, x))
 
 -- | Creates a generic graph from the pacman graph (discards provides)
-converGraph :: PacDigraph -> Graphs.UnverifiedDigraph
-converGraph d = Graphs.UnverifiedDigraph $ Map.map convPack d
+convertGraph :: PacDigraph -> IdTable Text -> Graphs.UnverifiedDigraph
+convertGraph d table = Graphs.UnverifiedDigraph $ Map.map convPack idKeyMap
   where
+    idKeyMap = Map.mapKeys (fst table) d
     convPack :: Pack -> Graphs.PackNoReq
     convPack p =
       Graphs.PackNoReq
-        { Graphs.pnrName = pName p,
+        { Graphs.pnrId = fst table $ pName p,
           Graphs.pnrSize = pSize p,
           Graphs.pnrExplicit = pExplicit p,
-          Graphs.pnrDepends = pDepends p,
-          Graphs.pnrOptional = pOptional p
+          Graphs.pnrDepends = IntSet.fromList $ map (fst table) $ Set.elems $ pDepends p,
+          Graphs.pnrOptional = IntSet.fromList $ map (fst table) $ Set.elems $ pOptional p
         }
 
 -- | Map the 'provides' elements to the package name
@@ -115,8 +120,24 @@ cleanDeps d pmap = Map.map edit d
                  \ apparently the package base is broken"
         verify _ (Just p) = p
 
+makeIdTable :: (Ord a, Hashable a) => Set a -> IdTable a
+makeIdTable set = (toId, fromId)
+  where
+    list = Set.toAscList set
+    hmap = Map.fromList $ zip list [0 ..]
+    arr = Array.listArray (0, length list - 1) list
+    toId x = hmap Map.! x
+    fromId i = arr Array.! i
+
+makeIdTable1 :: PacDigraph -> IdTable Text
+makeIdTable1 g = makeIdTable names
+  where
+    names = Set.unions $ map packNames $ Map.elems g
+    packNames p =
+      Set.unions [Set.fromList [pName p], pDepends p, pProvides p, pOptional p]
+
 -- | Gets the graph through pacman and expac
-getGraph :: IO (Maybe Graphs.UnverifiedDigraph)
+getGraph :: IO (Maybe (Graphs.UnverifiedDigraph, IdTable Text))
 getGraph = do
   -- name, depends on, provides, optional deps, install reason, install size
   mbPack <- getExpacQuery ["%n|%E|%S|%o|%w|%m"]
@@ -127,4 +148,5 @@ getGraph = do
       let provMap = provideToName graph
       let cleanedOpt = cleanOpts graph provMap
       let cleanedDeps = cleanDeps cleanedOpt provMap
-      pure $ Just $ converGraph cleanedDeps
+      let table = makeIdTable1 cleanedDeps
+      pure $ Just (convertGraph cleanedDeps table, table)
