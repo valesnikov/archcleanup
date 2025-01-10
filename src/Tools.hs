@@ -1,15 +1,16 @@
 module Tools where
 
+import Data.Array qualified as Array
 import Data.HashMap.Strict qualified as Map
+import Data.IntSet qualified as IntSet
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
-import Graphs (Graph (Graph), Pack (..), IdTable)
+import Graphs (Graph (Graph), IdTable, Pack (..))
 import System.Directory (findExecutable)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Process (createPipe, runProcess, waitForProcess)
-import qualified Data.IntSet as IntSet
 
 printByLines :: (Show a) => [a] -> IO ()
 printByLines = foldr ((>>) . print) (pure ())
@@ -43,8 +44,8 @@ genGraphviz (Graph hmap) t = "strict digraph {\n" ++ inner ++ "}\n"
     inner = foldr (\x l -> l ++ perPack x) "" (Map.elems hmap)
     perPack pack = foldr (\x l -> l ++ genLine name x) style deps
       where
-        name = Text.unpack $ snd t $ pId pack
-        deps = map (Text.unpack . snd t) (IntSet.elems $ pDepends pack)
+        name = Text.unpack $ t Array.! pId pack
+        deps = map (Text.unpack . (t Array.!)) (IntSet.elems $ pDepends pack)
         style = "    \"" ++ name ++ "\" [fontsize=" ++ fsize ++ "]\n"
         fsize = show $ 14 + 4 * IntSet.size (pDepends pack)
     genLine n1 n2 = "    \"" ++ n1 ++ "\" -> \"" ++ n2 ++ "\"\n"

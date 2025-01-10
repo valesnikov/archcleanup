@@ -5,12 +5,10 @@ module Prepare where
 import Data.HashMap.Strict qualified as Map
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
+import Data.List (uncons)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.List (uncons)
 import Graphs
-
-
 
 -- | Checks the graph for unknown packets and returns them
 verifyDigraph :: UnverifiedDigraph -> Either IntSet Digraph
@@ -64,6 +62,7 @@ editNeighbors pack f = editOpts . editDeps . editOptReq . editReq
 -- | Merges multiple vertices into one
 -- Package names are joined into one,
 -- size is summed, and all dependencies are unioned
+
 {-
 mergeVertices :: Set Text -> Graph -> Graph
 mergeVertices ps (Graph hmap) = Graph (merge hmap)
@@ -106,7 +105,6 @@ untreeGraph (Graph d) = Graph $ untree d
         targets = Map.filter prdc hmap
         prdc pack = IntSet.null (pDepends pack) || IntSet.null (pRequired pack)
 
-
 getComponents :: Graph -> Set Graph
 getComponents (Graph hmap) = Set.map Graph $ splitComps hmap Set.empty
   where
@@ -116,8 +114,9 @@ getComponents (Graph hmap) = Set.map Graph $ splitComps hmap Set.empty
 
     unconsComp hm = case getSomeElem hm of
       Nothing -> Nothing
-      Just idx -> let comp = component idx Map.empty hm in
-       Just (comp, Map.difference hm comp)
+      Just idx ->
+        let comp = component idx Map.empty hm
+         in Just (comp, Map.difference hm comp)
 
     component idx acc hm
       | Map.member idx acc = acc
